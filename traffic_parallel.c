@@ -96,12 +96,13 @@ int main(int argc, char **argv) {
         }
     }
     flow /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
-    lane_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER * density);
+    lane_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
     ping_pong_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
 
     printf("Average car density: %G\n", density);
     printf("Average flow: %G\n", flow);
     printf("Average lane changes: %G\n", lane_changes);
+    printf("Lane changes per car: %f", lane_changes / density);
     printf("Average ping pong lane changes: %G\n", ping_pong_changes);
     
     free(cars);
@@ -121,29 +122,25 @@ void initialise(car *cars, int *grid, int *new_grid, parameters sim, int seed) {
         }
     }
 
-    #pragma omp parallel
-    {
-        unsigned short xsubi[3] = {
-            seed + omp_get_thread_num(),
-            seed + omp_get_thread_num() * 2,
-            seed + omp_get_thread_num() * 3
-        };
+    unsigned short xsubi[3] = {
+        seed + 1,
+        seed + 2,
+        seed + 3
+    };
 
-        #pragma omp for private(x, y)
-        for (int i = 0; i < sim.N; i++) {
+    for (int i = 0; i < sim.N; i++) {
+        x = nrand48(xsubi) % sim.L;
+        y = nrand48(xsubi) % sim.LANES;
+        while (grid[sim.L * y + x] != -1) {
             x = nrand48(xsubi) % sim.L;
             y = nrand48(xsubi) % sim.LANES;
-            while (grid[sim.L * y + x] != -1) {
-                x = nrand48(xsubi) % sim.L;
-                y = nrand48(xsubi) % sim.LANES;
-            }
-            grid[sim.L * y + x] = i;
-            cars[i].x = x;
-            cars[i].y = y;
-            cars[i].v = 0;
-            cars[i].v_d = sim.v_max;
-            cars[i].lane_change_now = 0;
         }
+        grid[sim.L * y + x] = i;
+        cars[i].x = x;
+        cars[i].y = y;
+        cars[i].v = 0;
+        cars[i].v_d = sim.v_max;
+        cars[i].lane_change_now = 0;
     }
 }
 
