@@ -99,9 +99,9 @@ int main(int argc, char **argv) {
             }
         }
     }
-    flow /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
-    lane_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER * density);
-    ping_pong_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
+    flow /= (double) (sim.L * sim.MAX_ITER);
+    lane_changes /= (double) (sim.L * sim.MAX_ITER * density);
+    ping_pong_changes /= (double) (sim.L * sim.MAX_ITER);
 
     printf("Average car density: %G\n", density);
     printf("Average flow: %G\n", flow);
