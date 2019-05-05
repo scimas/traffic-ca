@@ -4,6 +4,7 @@
 #include <omp.h>
 #include <time.h>
 
+// Fundamental simulation unit
 typedef struct cars {
     int x;                  // x position on the road
     int y;                  // Lane number on the road
@@ -13,6 +14,7 @@ typedef struct cars {
     int lane_change_prev;   // Did lane change last iteration
 } car;
 
+// Simulation parameters
 typedef struct {
     int LANES;          // Number of lanes (currently only 2 possible)
     int L;              // Length of the road
@@ -25,7 +27,6 @@ typedef struct {
 
 void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed);
 void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int iter);
-car * preceedingCar(car *cars, int car_index, int *grid, parameters *sim);
 int aheadThisLane(car *cars, int car_index, parameters *sim);
 int aheadOtherLane(car *cars, int car_index, parameters *sim);
 int behindOtherLane(car *cars, int car_index, parameters *sim);
@@ -60,10 +61,11 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    double density = (double) sim.N / (double) (sim.LANES * sim.L);
-    double flow = 0;
-    double lane_changes = 0;
-    double ping_pong_changes = 0;
+    // Statistical quantities of interest
+    double density = (double) sim.N / (double) (sim.LANES * sim.L); // Number of vehicles per grid site
+    double flow = 0;                // Average velocity on the grid
+    double lane_changes = 0;        // Average number of lane changes
+    double ping_pong_changes = 0;   // Average number of lane changes on consicutive time steps
 
     int seed = atoi(argv[1]);
 
@@ -73,6 +75,7 @@ int main(int argc, char **argv) {
     // struct timespec sleeper = {0, 400000000};
     // struct timespec remain;
 
+    // Allow 1000 time steps to pass to reach a steady state
     for (int i = 0; i < 1000; i++) {
         update(cars, grid, new_grid, &sim, seed, i);
         // printGrid(cars, grid, 100, sim);
@@ -111,6 +114,14 @@ int main(int argc, char **argv) {
     return 0;
 }
 
+/**
+ * Initialises the cars array and the grids.
+ * @param cars An array of struct car.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param new_grid An integer array used to store the newly calculated positions.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @param seed An integer used to seed the PRNGs.
+ */
 void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed) {
     int x, y;
     
@@ -144,6 +155,15 @@ void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed) 
     }
 }
 
+/**
+ * Updates the state of the simulation.
+ * @param cars An array of struct car.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param new_grid An integer array used to store the newly calculated positions.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @param seed An integer used to seed the PRNGs.
+ * @param iter Another integer used to seed the PRNGs.
+ */
 void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int iter) {
     #pragma omp parallel for
     for (int i = 0; i < sim->LANES; i++) {
@@ -206,27 +226,47 @@ void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int 
     }
 }
 
-car * preceedingCar(car *cars, int car_index, int *grid, parameters *sim) {
-    int lane = cars[car_index].y;
-    int x = cars[car_index].x + 1;
-    while (grid[sim->L * lane + x] != -1) {
-        x = (x + 1) % sim->L;
-    }
-    return &cars[grid[sim->L * lane + x]];
-}
-
+/**
+ * Gives the look ahead parameter for the same lane.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer look ahead parameter.
+ */
 int aheadThisLane(car *cars, int car_index, parameters *sim) {
     return cars[car_index].v + 1;
 }
 
+/**
+ * Gives the look ahead parameter for the other lane.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer look ahead parameter.
+ */
 int aheadOtherLane(car *cars, int car_index, parameters *sim) {
     return cars[car_index].v + 1;
 }
 
+/**
+ * Gives the look behind parameter for the other lane.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer look ahead parameter.
+ */
 int behindOtherLane(car *cars, int car_index, parameters *sim) {
     return sim->v_max;
 }
 
+/**
+ * Gives the distance to the car immediately in front of this car in the same lane.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer distance
+ */
 int gapAhead(car *cars, int car_index, int *grid, parameters *sim) {
     int lane = cars[car_index].y;
     int x = (cars[car_index].x + 1) % sim->L;
@@ -239,6 +279,15 @@ int gapAhead(car *cars, int car_index, int *grid, parameters *sim) {
     return gap;
 }
 
+/**
+ * Gives the distance to the car immediately in front of this car in the other lane.
+ * Returns -1 if the adjacent position is occupied by a car.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer distance
+ */
 int gapAheadOther(car *cars, int car_index, int *grid, parameters *sim) {
     int lane = (cars[car_index].y + 1) % sim->LANES;
     int x = cars[car_index].x;
@@ -256,6 +305,15 @@ int gapAheadOther(car *cars, int car_index, int *grid, parameters *sim) {
     return gap;
 }
 
+/**
+ * Gives the distance to the car immediately behind this car in the other lane.
+ * Returns -1 if the adjacent position is occupied by a car.
+ * @param cars An array of struct car.
+ * @param car_index Integer index of the car in the cars array.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ * @return integer distance
+ */
 int gapBehindOther(car *cars, int car_index, int *grid, parameters *sim) {
     int lane = (cars[car_index].y + 1) % sim->LANES;
     int x = cars[car_index].x;
@@ -273,6 +331,13 @@ int gapBehindOther(car *cars, int car_index, int *grid, parameters *sim) {
     return gap;
 }
 
+/**
+ * Prints out the road on the screen.
+ * @param cars An array of struct car.
+ * @param grid An integer array that stores the positions of cars on the road.
+ * @param length An integer that determines how many positions are printed.
+ * @param sim A pointer to the simulation parameters of type struct parameters.
+ */
 void printGrid(car *cars, int *grid, int length, parameters *sim) {
     printf("\033[2A\033[K");
     for (int i = 0; i < sim->LANES; i++) {
@@ -288,6 +353,13 @@ void printGrid(car *cars, int *grid, int length, parameters *sim) {
     }
 }
 
+/**
+ * The mathematical modulo operation.
+ * This is consistent with the Euclidean algorithm so that the output is always non negative.
+ * @param a The integer dividend.
+ * @param n The integer divisor.
+ * @return b An integer such that a ≡ b (mod n)
+ */
 int mod(int a, int n) {
     return a - n * (int) floor((double) a / (double) n);
 }
