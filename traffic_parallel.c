@@ -155,9 +155,9 @@ void update(car *cars, int *grid, int *new_grid, parameters sim, int seed, int i
     #pragma omp parallel
     {
         unsigned short xsubi[3] = {
-            seed + omp_get_thread_num() * iter,
-            seed + omp_get_thread_num() * iter + 2,
-            seed + omp_get_thread_num() * iter + 3
+            seed + iter + omp_get_thread_num() + 1,
+            seed + iter + omp_get_thread_num() + 2,
+            seed + iter + omp_get_thread_num() + 3
         };
 
         #pragma omp for
