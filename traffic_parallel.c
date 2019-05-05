@@ -38,7 +38,7 @@ int mod(int a, int n);
 
 int main(int argc, char **argv) {
     if (argc < 5) {
-        printf("Usage: ./traffic_serial density p_change p_brake seed\n");
+        printf("Usage: ./e_traffic_parallel density p_change p_brake seed\n");
         printf("density: float that determines number of cars.\n");
         printf("p_change: float, probability of lane change.\n");
         printf("p_brake: float, probability of a car randomly braking.\n");
