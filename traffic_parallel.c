@@ -186,10 +186,10 @@ void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int 
         for (int i = 0; i < sim->N; i++) {
             cars[i].lane_change_prev = cars[i].lane_change_now;
             if (
+                erand48(xsubi) < sim->p_change &&
                 gapAhead(cars, i, grid, sim) < aheadThisLane(cars, i, sim) &&
                 gapAheadOther(cars, i, grid, sim) > aheadOtherLane(cars, i, sim) &&
-                gapBehindOther(cars, i, grid, sim) > behindOtherLane(cars, i, sim) &&
-                erand48(xsubi) < sim->p_change
+                gapBehindOther(cars, i, grid, sim) > behindOtherLane(cars, i, sim)
             ) {
                 cars[i].y = (cars[i].y + 1) % sim->LANES;
                 cars[i].lane_change_now = 1;
