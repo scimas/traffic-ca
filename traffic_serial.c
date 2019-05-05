@@ -118,9 +118,9 @@ void initialise(car *cars, int *grid, int *new_grid, parameters sim, unsigned sh
         }
     }
 
-    x = nrand48(xsubi) % sim.L;
-    y = nrand48(xsubi) % sim.LANES;
     for (int i = 0; i < sim.N; i++) {
+        x = nrand48(xsubi) % sim.L;
+        y = nrand48(xsubi) % sim.LANES;
         while (grid[sim.L * y + x] != -1) {
             x = nrand48(xsubi) % sim.L;
             y = nrand48(xsubi) % sim.LANES;
