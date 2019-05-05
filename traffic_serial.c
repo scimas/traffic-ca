@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
         printf("density: float that determines number of cars.\n");
         printf("p_change: float, probability of lane change.\n");
         printf("p_brake: float, probability of a car randomly braking.\n");
-        printf("seed: integer used to seed the PRNG\n");
+        printf("seed: integer used to seed the PRNG.\n");
         exit(99);
     }
 
