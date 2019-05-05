@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
     parameters sim;
     sim.LANES = 2;
     sim.L = 133333;
-    sim.N = (int) sim.LANES * sim.L * 0.3;
+    sim.N = (int) sim.LANES * sim.L * 0.08;
     sim.MAX_ITER = 5000;
     sim.v_max = 5;
     sim.p_change = 1.0;
