@@ -22,7 +22,7 @@ typedef struct {
     int MAX_ITER;       // Iterations
     int v_max;          // Maximum allowed velocity
     double p_change;    // Lane change probability
-    double p_break;     // Random braking probability
+    double p_brake;     // Random braking probability
 } parameters;
 
 void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed);
@@ -37,20 +37,24 @@ void printGrid(car *cars, int *grid, int length, parameters *sim);
 int mod(int a, int n);
 
 int main(int argc, char **argv) {
-    if (argc == 1) {
-        printf("Usage: ./traffic_serial seed\n");
-        printf("seed: integer used to seed the PRNG\n");
+    if (argc < 5) {
+        printf("Usage: ./traffic_serial density p_change p_brake seed\n");
+        printf("density: float that determines number of cars.\n");
+        printf("p_change: float, probability of lane change.\n");
+        printf("p_brake: float, probability of a car randomly braking.\n");
+        printf("seed: integer used to seed the PRNG.\n");
         exit(99);
     }
 
     parameters sim;
     sim.LANES = 2;
     sim.L = 133333;
-    sim.N = (int) sim.LANES * sim.L * 0.08;
+    sim.N = (int) sim.LANES * sim.L * atof(argv[1]);
     sim.MAX_ITER = 5000;
     sim.v_max = 5;
-    sim.p_change = 1.0;
-    sim.p_break = 0.1;
+    sim.p_change = atof(argv[2]);
+    sim.p_brake = atof(argv[3]);
+    int seed = atoi(argv[4]);
 
     car *cars = malloc(sizeof *cars * sim.N);
     int *grid = malloc(sizeof *grid * sim.LANES * sim.L);
@@ -66,8 +70,6 @@ int main(int argc, char **argv) {
     double flow = 0;                // Average velocity on the grid
     double lane_changes = 0;        // Average number of lane changes
     double ping_pong_changes = 0;   // Average number of lane changes on consicutive time steps
-
-    int seed = atoi(argv[1]);
 
     initialise(cars, grid, new_grid, &sim, seed);
     printf("Initialisation complete.\n\n\n");
@@ -208,7 +210,7 @@ void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int 
             if (cars[i].v > gap) {
                 cars[i].v = gap;
             }
-            if (cars[i].v > 0 && erand48(xsubi) < sim->p_break) {
+            if (cars[i].v > 0 && erand48(xsubi) < sim->p_brake) {
                 cars[i].v--;
             }
         }
