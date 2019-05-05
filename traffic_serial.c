@@ -3,318 +3,264 @@
 #include <math.h>
 #include <time.h>
 
+typedef struct cars {
+    int x;                  // x position on the road
+    int y;                  // Lane number on the road
+    int v;                  // Current velocity
+    int v_d;                // Desired velocity
+    int lane_change_now;    // Did lane change this iteration
+    int lane_change_prev;   // Did lane change last iteration
+} car;
+
 typedef struct {
-    int LANE;           // Number of lanes
+    int LANES;          // Number of lanes (currently only 2 possible)
     int L;              // Length of the road
     int N;              // Number of cars
-    int MAX_ITER;       // Maximum iterations
-    int v_max;          // Maximum desired speed
+    int MAX_ITER;       // Iterations
+    int v_max;          // Maximum allowed velocity
     double p_change;    // Lane change probability
-    double p_break;     // Random breaking probability
-} simulation_params;
+    double p_break;     // Random braking probability
+} parameters;
 
-void initialize(int *road, int *v, simulation_params *sim_params, int seed);
-void update(int *road, int *interm_road, int *v, int *interm_v, simulation_params *sim_params, unsigned short *xsubi);
-int aheadParam(int v, simulation_params *sim_params);
-int aheadOtherParam(int v, simulation_params *sim_params);
-int behindOtherParam(int v, simulation_params *sim_params);
-int gapAhead(int lane, int position, int *road, simulation_params *sim_params);
-int gapAheadOther(int lane, int position, int *road, simulation_params *sim_params);
-int gapBehindOther(int lane, int position, int *road, simulation_params *sim_params);
-
-void printRoad(int *road, int LANE, int L);
+void initialise(car *cars, int *grid, int *new_grid, parameters sim, unsigned short *xsubi);
+void update(car *cars, int *grid, int *new_grid, parameters sim, unsigned short *xsubi);
+car * preceedingCar(car *cars, int car_index, int *grid, parameters sim);
+int aheadThisLane(car *cars, int car_index, parameters sim);
+int aheadOtherLane(car *cars, int car_index, parameters sim);
+int behindOtherLane(car *cars, int car_index, parameters sim);
+int gapAhead(car *cars, int car_index, int *grid, parameters sim);
+int gapAheadOther(car *cars, int car_index, int *grid, parameters sim);
+int gapBehindOther(car *cars, int car_index, int *grid, parameters sim);
+void printGrid(car *cars, int *grid, int length, parameters sim);
 int mod(int a, int n);
 
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
     if (argc == 1) {
-        printf("Usage: ./traffic random_seed\n");
-        printf("random_seed: integer\n");
+        printf("Usage: ./traffic_serial seed\n");
+        printf("seed: integer used to seed the PRNG\n");
         exit(99);
     }
 
-    // Set simulation parameters
-    simulation_params sim_params = {
-        2,
-        133333,
-        sim_params.LANE * sim_params.L * 0.08,
-        5000,
-        5,
-        1,
-        0.5
-    };
+    parameters sim;
+    sim.LANES = 2;
+    sim.L = 133333;
+    sim.N = (int) sim.LANES * sim.L * 0.3;
+    sim.MAX_ITER = 5000;
+    sim.v_max = 5;
+    sim.p_change = 1.0;
+    sim.p_break = 0.1;
 
-    struct timespec sleeper = {     // Sleep for visualization
-        0,
-        300000000
-    };
-    struct timespec remain;
+    car *cars = malloc(sizeof *cars * sim.N);
+    int *grid = malloc(sizeof *grid * sim.LANES * sim.L);
+    int *new_grid = malloc(sizeof *new_grid * sim.LANES * sim.L);
 
-    printf("\n\n");     // Creating space to print out the cars
-
-    int *road = malloc(sim_params.LANE * sim_params.L * sizeof(int));         // Main road grid
-    int *interm_road = malloc(sim_params.LANE * sim_params.L * sizeof(int));  // Road grid for intermediate calculations
-    int *v = malloc(sim_params.LANE * sim_params.L * sizeof(int));            // Speed grid
-    int *interm_v = malloc(sim_params.LANE * sim_params.L * sizeof(int));     // Speed grid for intermediate calculations
-
-    // Statistics to be collected
-    double density = (double) sim_params.N / (double) (sim_params.LANE * sim_params.L);
-    double flow = 0;
-    
-    int seed = atoi(argv[1]);                           // Random seed provided at program invoke
-    
-    if (road == NULL || v == NULL) {
-        printf("Could not allocate memory.\n");
+    if (cars == NULL || grid == NULL || new_grid == NULL) {
+        printf("Could not allocate memory!!!\n");
         exit(1);
     }
-    initialize(road, v, &sim_params, seed);
 
-    // printf("Original Road:\n\n");
-    // printRoad(road, LANE, 10);
-    // printf("\n");
-    
-    unsigned short xsubi[3];
-    xsubi[0] = seed + 1;
-    xsubi[1] = seed + 2;
-    xsubi[2] = seed + 3;
+    double density = (double) sim.N / (double) (sim.LANES * sim.L);
+    double flow = 0;
+    double lane_changes = 0;
+    double ping_pong_changes = 0;
+
+    int seed = atoi(argv[1]);
+    unsigned short xsubi[3] = {seed, seed + 1, seed + 2};
+
+    initialise(cars, grid, new_grid, sim, xsubi);
+    printf("Initialisation complete.\n\n\n");
+
+    // struct timespec sleeper = {0, 400000000};
+    // struct timespec remain;
+
     for (int i = 0; i < 1000; i++) {
-        for (int lane = 0; lane < sim_params.LANE; lane++) {
-            for (int j = 0; j < sim_params.L; j++) {
-                interm_road[sim_params.L*lane + j] = 0;
-                interm_v[sim_params.L*lane + j] = 0;
-            }
-        }
-        for (int lane = 0; lane < sim_params.LANE; lane++) {
-            for (int j = 0; j < sim_params.L; j++) {
-                if (road[sim_params.L*lane + j] == 1) {
-                    if (
-                        gapAhead(lane, j, road, &sim_params) < aheadParam(v[sim_params.L*lane + j], &sim_params) &&
-                        gapAheadOther(lane, j, road, &sim_params) > aheadOtherParam(v[sim_params.L*lane + j], &sim_params) &&
-                        gapBehindOther(lane, j, road, &sim_params) > behindOtherParam(v[sim_params.L*lane + j], &sim_params) &&
-                        erand48(xsubi) < sim_params.p_change
-                    ) {
-                        interm_road[sim_params.L*mod(lane + 1, sim_params.LANE) + j] = 1;
-                        interm_v[sim_params.L*mod(lane + 1, sim_params.LANE) + j] = v[sim_params.L*lane + j];
-                    }
-                    else {
-                        interm_road[sim_params.L*lane + j] = 1;
-                        interm_v[sim_params.L*lane + j] = v[sim_params.L*lane + j];
-                    }
-                }
-            }
-        }
-        for (int lane = 0; lane < sim_params.LANE; lane++) {
-            for (int j = 0; j < sim_params.L; j++) {
-                road[sim_params.L*lane + j] = 0;
-                v[sim_params.L*lane + j] = 0;
-            }
-        }
-        for (int lane = 0; lane < sim_params.LANE; lane++) {
-            int gap;
-            for (int j = 0; j < sim_params.L; j++) {
-                if (interm_road[sim_params.L*lane + j] == 1) {
-                    gap = gapAhead(lane, j, interm_road, &sim_params);
-                    if (interm_v[sim_params.L*lane + j] != sim_params.v_max) {
-                        interm_v[sim_params.L*lane + j]++;
-                    }
-                    if (interm_v[sim_params.L*lane + j] > gap) {
-                        interm_v[sim_params.L*lane + j] = gap;
-                    }
-                    if (interm_v[sim_params.L*lane + j] != 0 && erand48(xsubi) < sim_params.p_break) {
-                        interm_v[sim_params.L*lane + j] -= 1;
-                    }
-                    road[sim_params.L*lane + mod(j + interm_v[sim_params.L*lane + j], sim_params.L)] = 1;
-                    v[sim_params.L*lane + mod(j + interm_v[sim_params.L*lane + j], sim_params.L)] = interm_v[sim_params.L*lane + j];
-                }
-            }
-        }
-        printRoad(road, sim_params.LANE, 100);
-        nanosleep(&sleeper, &remain);
+        update(cars, grid, new_grid, sim, xsubi);
+        // printGrid(cars, grid, 100, sim);
+        // nanosleep(&sleeper, &remain);
     }
 
-    for (int i = 0; i < sim_params.MAX_ITER; i++) {
-        update(road, interm_road, v, interm_v, &sim_params, xsubi);
+    for (int i = 0; i < sim.MAX_ITER; i++) {
+        update(cars, grid, new_grid, sim, xsubi);
+        for (int j = 0; j < sim.N; j++) {
+            lane_changes += cars[j].lane_change_now;
+            if (cars[j].lane_change_now * cars[j].lane_change_prev == 1) {
+                ping_pong_changes += 1;
+            }
+        }
         if (i % 5 == 0) {
-            for (int lane = 0; lane < sim_params.LANE; lane++) {
-                for (int j = 0; j < sim_params.L; j++) {
-                    flow += v[sim_params.L*lane + j];
-                }
+            for (int j = 0; j < sim.N; j++) {
+                flow += cars[j].v;
             }
         }
     }
-    flow /= (double) (sim_params.L * sim_params.LANE * sim_params.MAX_ITER);
-    // int cars = 0;
-    // for (int lane = 0; lane < LANE; lane++) {
-    //     for (int j = 0; j < L; j++) {
-    //         cars += road[L*lane + j];
-    //     }
-    // }
-    // printf("%d\n", cars);
-    // printf("Road after %d iterations:\n\n", MAX_ITER);
-    // printRoad(road, LANE, 10);
-    // printf("\n");
+    flow /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
+    lane_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER * density);
+    ping_pong_changes /= (double) (sim.LANES * sim.L * sim.MAX_ITER);
 
-    printf("Average road density: %f\n", density);
-    printf("Traffic flow (time and space averaged speed): %f\n", flow);
+    printf("Average car density: %G\n", density);
+    printf("Average flow: %G\n", flow);
+    printf("Average lane changes: %G\n", lane_changes);
+    printf("Average ping pong lane changes: %G\n", ping_pong_changes);
     
-    free(road);
-    free(interm_road);
-    free(v);
-    free(interm_v);
+    free(cars);
+    free(grid);
+    free(new_grid);
     return 0;
 }
 
-void initialize(int *road, int *v, simulation_params *sim_params, int seed) {
+void initialise(car *cars, int *grid, int *new_grid, parameters sim, unsigned short *xsubi) {
     int x, y;
-    
-    for (int i = 0; i < sim_params->LANE * sim_params->L; i++) {
-        road[i] = 0;
-        v[i] = 0;
+
+    for (int i = 0; i < sim.LANES; i++) {
+        for (int j = 0; j < sim.L; j++) {
+            grid[sim.L * i + j] = -1;
+            new_grid[sim.L * i + j] = -1;
+        }
     }
 
-    unsigned short xsubi[3];
-    xsubi[0] = seed + 1;
-    xsubi[1] = seed + 2;
-    xsubi[2] = seed + 3;
-    
-    x = nrand48(xsubi) % sim_params->LANE;
-    y = nrand48(xsubi) % sim_params->L;
-    for (int i = 0; i < sim_params->N; i++) {
-        road[sim_params->L*x + y] = 1;
-        while (road[sim_params->L*x + y] == 1) {
-            x = nrand48(xsubi) % sim_params->LANE;
-            y = nrand48(xsubi) % sim_params->L;
+    x = nrand48(xsubi) % sim.L;
+    y = nrand48(xsubi) % sim.LANES;
+    for (int i = 0; i < sim.N; i++) {
+        while (grid[sim.L * y + x] != -1) {
+            x = nrand48(xsubi) % sim.L;
+            y = nrand48(xsubi) % sim.LANES;
         }
+        grid[sim.L * y + x] = i;
+        cars[i].x = x;
+        cars[i].y = y;
+        cars[i].v = 0;
+        cars[i].v_d = sim.v_max;
+        cars[i].lane_change_now = 0;
     }
 }
 
-void update(int *road, int *interm_road, int *v, int *interm_v, simulation_params *sim_params, unsigned short *xsubi) {
-    for (int lane = 0; lane < sim_params->LANE; lane++) {
-        for (int j = 0; j < sim_params->L; j++) {
-            interm_road[sim_params->L*lane + j] = 0;
-            interm_v[sim_params->L*lane + j] = 0;
+void update(car *cars, int *grid, int *new_grid, parameters sim, unsigned short *xsubi) {
+    for (int i = 0; i < sim.LANES; i++) {
+        for (int j = 0; j < sim.L; j++) {
+            new_grid[sim.L * i + j] = -1;
         }
     }
-    for (int lane = 0; lane < sim_params->LANE; lane++) {
-        for (int j = 0; j < sim_params->L; j++) {
-            if (road[sim_params->L*lane + j] == 1) {
-                if (
-                    gapAhead(lane, j, road, sim_params) < aheadParam(v[sim_params->L*lane + j], sim_params) &&
-                    gapAheadOther(lane, j, road, sim_params) > aheadOtherParam(v[sim_params->L*lane + j], sim_params) &&
-                    gapBehindOther(lane, j, road, sim_params) > behindOtherParam(v[sim_params->L*lane + j], sim_params) &&
-                    erand48(xsubi) < sim_params->p_change
-                ) {
-                    interm_road[sim_params->L*mod(lane + 1, sim_params->LANE) + j] = 1;
-                    interm_v[sim_params->L*mod(lane + 1, sim_params->LANE) + j] = v[sim_params->L*lane + j];
-                }
-                else {
-                    interm_road[sim_params->L*lane + j] = 1;
-                    interm_v[sim_params->L*lane + j] = v[sim_params->L*lane + j];
-                }
-            }
+
+    for (int i = 0; i < sim.N; i++) {
+        cars[i].lane_change_prev = cars[i].lane_change_now;
+        if (
+            gapAhead(cars, i, grid, sim) < aheadThisLane(cars, i, sim) &&
+            gapAheadOther(cars, i, grid, sim) > aheadOtherLane(cars, i, sim) &&
+            gapBehindOther(cars, i, grid, sim) > behindOtherLane(cars, i, sim) &&
+            erand48(xsubi) < sim.p_change
+        ) {
+            cars[i].y = (cars[i].y + 1) % sim.LANES;
+            cars[i].lane_change_now = 1;
+        }
+        else {
+            cars[i].lane_change_now = 0;
+        }
+        new_grid[sim.L * cars[i].y + cars[i].x] = i;
+    }
+
+    int gap;
+    for (int i = 0; i < sim.N; i++) {
+        gap = gapAhead(cars, i, new_grid, sim);
+        if (cars[i].v < cars[i].v_d) {
+            cars[i].v++;
+        }
+        if (cars[i].v > gap) {
+            cars[i].v = gap;
+        }
+        if (cars[i].v > 0 && erand48(xsubi) < sim.p_break) {
+            cars[i].v--;
         }
     }
-    for (int lane = 0; lane < sim_params->LANE; lane++) {
-        for (int j = 0; j < sim_params->L; j++) {
-            road[sim_params->L*lane + j] = 0;
-            v[sim_params->L*lane + j] = 0;
+    for (int i = 0; i < sim.LANES; i++) {
+        for (int j = 0; j < sim.L; j++) {
+            grid[sim.L * i + j] = -1;
         }
     }
-    for (int lane = 0; lane < sim_params->LANE; lane++) {
-        int gap;
-        for (int j = 0; j < sim_params->L; j++) {
-            if (interm_road[sim_params->L*lane + j] == 1) {
-                gap = gapAhead(lane, j, interm_road, sim_params);
-                if (interm_v[sim_params->L*lane + j] != sim_params->v_max) {
-                    interm_v[sim_params->L*lane + j]++;
-                }
-                if (interm_v[sim_params->L*lane + j] > gap) {
-                    interm_v[sim_params->L*lane + j] = gap;
-                }
-                if (interm_v[sim_params->L*lane + j] != 0 && erand48(xsubi) < sim_params->p_break) {
-                    interm_v[sim_params->L*lane + j] -= 1;
-                }
-                road[sim_params->L*lane + mod(j + interm_v[sim_params->L*lane + j], sim_params->L)] = 1;
-                v[sim_params->L*lane + mod(j + interm_v[sim_params->L*lane + j], sim_params->L)] = interm_v[sim_params->L*lane + j];
-            }
-        }
+    for (int i = 0; i < sim.N; i++) {
+        cars[i].x = (cars[i].x + cars[i].v) % sim.L;
+        grid[sim.L * cars[i].y + cars[i].x] = i;
     }
 }
 
-int aheadParam(int v, simulation_params *sim_params) {
-    return v + 1;
-}
-
-int aheadOtherParam(int v, simulation_params *sim_params) {
-    return v + 1;
-}
-
-int behindOtherParam(int v, simulation_params *sim_params) {
-    return sim_params->v_max;
-}
-
-int gapAhead(int lane, int position, int *road, simulation_params *sim_params) {
-    int j = mod(position + 1, sim_params->L);
-    int count = 0;
-    while (road[sim_params->L*lane + j] != 1) {
-        j = mod(j + 1, sim_params->L);
-        count++;
-        if (j == position) {
-            break;
-        }
+car * preceedingCar(car *cars, int car_index, int *grid, parameters sim) {
+    int lane = cars[car_index].y;
+    int x = cars[car_index].x + 1;
+    while (grid[sim.L * lane + x] != -1) {
+        x = (x + 1) % sim.L;
     }
-    return count;
+    return &cars[grid[sim.L * lane + x]];
 }
 
-int gapAheadOther(int lane, int position, int *road, simulation_params *sim_params) {
-    int j = mod(position + 1, sim_params->L);
-    int count = 0;
-    lane = mod(lane + 1, sim_params->LANE);
+int aheadThisLane(car *cars, int car_index, parameters sim) {
+    return cars[car_index].v + 1;
+}
 
-    if (road[sim_params->L*lane + position] == 1) {
+int aheadOtherLane(car *cars, int car_index, parameters sim) {
+    return cars[car_index].v + 1;
+}
+
+int behindOtherLane(car *cars, int car_index, parameters sim) {
+    return sim.v_max;
+}
+
+int gapAhead(car *cars, int car_index, int *grid, parameters sim) {
+    int lane = cars[car_index].y;
+    int x = (cars[car_index].x + 1) % sim.L;
+    int gap = 0;
+
+    while (grid[sim.L * lane + x] == -1) {
+        x = (x + 1) % sim.L;
+        gap++;
+    }
+    return gap;
+}
+
+int gapAheadOther(car *cars, int car_index, int *grid, parameters sim) {
+    int lane = (cars[car_index].y + 1) % sim.LANES;
+    int x = cars[car_index].x;
+    int gap = 0;
+
+    if (grid[sim.L * lane + x] != -1) {
         return -1;
     }
 
-    while (road[sim_params->L*lane + j] != 1) {
-        j = mod(j + 1, sim_params->L);
-        count++;
-        if (j == position) {
-            break;
-        }
+    x = (x + 1) % sim.L;
+    while (grid[sim.L * lane + x] == -1) {
+        x = (x + 1) % sim.L;
+        gap++;
     }
-    return count;
+    return gap;
 }
 
-int gapBehindOther(int lane, int position, int *road, simulation_params *sim_params) {
-    int j = mod(position - 1, sim_params->L);
-    int count = 0;
-    lane = mod(lane + 1, sim_params->LANE);
+int gapBehindOther(car *cars, int car_index, int *grid, parameters sim) {
+    int lane = (cars[car_index].y + 1) % sim.LANES;
+    int x = cars[car_index].x;
+    int gap = 0;
 
-    if (road[sim_params->L*lane + position] == 1) {
+    if (grid[sim.L * lane + x] != -1) {
         return -1;
     }
 
-    while (road[sim_params->L*lane + j] != 1) {
-        j = mod(j + 1, sim_params->L);
-        count++;
-        if (j == position) {
-            break;
-        }
+    x = (x - 1) % sim.L;
+    while (grid[sim.L * lane + x] == -1) {
+        x = mod((x - 1), sim.L);
+        gap++;
     }
-    return count;
+    return gap;
 }
 
-void printRoad(int *road, int LANE, int L) {
+void printGrid(car *cars, int *grid, int length, parameters sim) {
     printf("\033[2A\033[K");
-    for (int i = 0; i < LANE; i++) {
-        for(int j = 0; j < L; j++) {
-            if (road[L*i + j] == 1) {
-                printf("\033[01;32m\u2588\033[00m");
+    for (int i = 0; i < sim.LANES; i++) {
+        for (int j = 0; j < length; j++) {
+            if (grid[sim.L * i + j] != -1) {
+                printf("\033[1;32m%d\033[0m", cars[grid[sim.L * i + j]].lane_change_now);
             }
             else {
-                printf("\033[02;35m\u2588\033[00m");
+                printf("\033[2;35m\u2588\033[0m");
             }
         }
-        printf("\n");
+        printf("\n\033[K");
     }
 }
 
