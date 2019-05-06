@@ -25,8 +25,8 @@ typedef struct {
     double p_brake;     // Random braking probability
 } parameters;
 
-void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed);
-void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int iter);
+void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed, unsigned short **xsubj, int threads);
+void update(car *cars, int *grid, int *new_grid, parameters *sim, unsigned short **xsubi);
 int aheadThisLane(car *cars, int car_index, parameters *sim);
 int aheadOtherLane(car *cars, int car_index, parameters *sim);
 int behindOtherLane(car *cars, int car_index, parameters *sim);
@@ -59,8 +59,21 @@ int main(int argc, char **argv) {
     car *cars = malloc(sizeof *cars * sim.N);
     int *grid = malloc(sizeof *grid * sim.LANES * sim.L);
     int *new_grid = malloc(sizeof *new_grid * sim.LANES * sim.L);
+    
+    int threads = 0;
+    #pragma omp parallel
+    {
+        #pragma omp single
+        {
+            threads = omp_get_num_threads();
+        }
+    }
+    unsigned short **xsubj = malloc(threads * sizeof (unsigned short*));
+    for (int i = 0; i < threads; i++) {
+        xsubj[i] = malloc(3 * sizeof (unsigned short));
+    }
 
-    if (cars == NULL || grid == NULL || new_grid == NULL) {
+    if (cars == NULL || grid == NULL || new_grid == NULL || xsubj == NULL) {
         printf("Could not allocate memory!!!\n");
         exit(1);
     }
@@ -71,7 +84,7 @@ int main(int argc, char **argv) {
     double lane_changes = 0;        // Average number of lane changes
     double ping_pong_changes = 0;   // Average number of lane changes on consicutive time steps
 
-    initialise(cars, grid, new_grid, &sim, seed);
+    initialise(cars, grid, new_grid, &sim, seed, xsubj, threads);
     printf("Initialisation complete.\n\n\n");
 
     // struct timespec sleeper = {0, 400000000};
@@ -79,13 +92,13 @@ int main(int argc, char **argv) {
 
     // Allow 1000 time steps to pass to reach a steady state
     for (int i = 0; i < 1000; i++) {
-        update(cars, grid, new_grid, &sim, seed, i);
+        update(cars, grid, new_grid, &sim, xsubj);
         // printGrid(cars, grid, 100, sim);
         // nanosleep(&sleeper, &remain);
     }
 
     for (int i = 0; i < sim.MAX_ITER; i++) {
-        update(cars, grid, new_grid, &sim, seed, i);
+        update(cars, grid, new_grid, &sim, xsubj);
         #pragma omp parallel for reduction(+:lane_changes, ping_pong_changes)
         for (int j = 0; j < sim.N; j++) {
             lane_changes += cars[j].lane_change_now;
@@ -113,6 +126,10 @@ int main(int argc, char **argv) {
     free(cars);
     free(grid);
     free(new_grid);
+    for (int i = 0; i < threads; i++) {
+        free(xsubj[i]);
+    }
+    free(xsubj);
     return 0;
 }
 
@@ -123,8 +140,10 @@ int main(int argc, char **argv) {
  * @param new_grid An integer array used to store the newly calculated positions.
  * @param sim A pointer to the simulation parameters of type struct parameters.
  * @param seed An integer used to seed the PRNGs.
+ * @param xsubj An unsigned short integer double pointer to an array of size (threads * 3). Stores the states of PRNGs.
+ * @param threads An integer, number of threads being used.
  */
-void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed) {
+void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed, unsigned short **xsubj, int threads) {
     int x, y;
     
     #pragma omp parallel for
@@ -155,6 +174,12 @@ void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed) 
         cars[i].v_d = sim->v_max;
         cars[i].lane_change_now = 0;
     }
+
+    for (int i = 0; i < threads; i++) {
+        for (int j = 0; j < 3; j++) {
+            xsubj[i][j] = (unsigned short) nrand48(xsubi);
+        }
+    }
 }
 
 /**
@@ -163,30 +188,23 @@ void initialise(car *cars, int *grid, int *new_grid, parameters *sim, int seed) 
  * @param grid An integer array that stores the positions of cars on the road.
  * @param new_grid An integer array used to store the newly calculated positions.
  * @param sim A pointer to the simulation parameters of type struct parameters.
- * @param seed An integer used to seed the PRNGs.
- * @param iter Another integer used to seed the PRNGs.
+ * @param xsubi An unsigned short integer double pointer to an array of size (threads * 3). Stores the states of PRNGs.
  */
-void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int iter) {
+void update(car *cars, int *grid, int *new_grid, parameters *sim, unsigned short **xsubi) {
     #pragma omp parallel for
     for (int i = 0; i < sim->LANES; i++) {
         for (int j = 0; j < sim->L; j++) {
             new_grid[sim->L * i + j] = -1;
         }
     }
-
+    
     #pragma omp parallel
     {
-        unsigned short xsubi[3] = {
-            seed + iter + omp_get_thread_num() + 1,
-            seed + iter + omp_get_thread_num() + 2,
-            seed + iter + omp_get_thread_num() + 3
-        };
-
         #pragma omp for
         for (int i = 0; i < sim->N; i++) {
             cars[i].lane_change_prev = cars[i].lane_change_now;
             if (
-                erand48(xsubi) < sim->p_change &&
+                erand48(xsubi[omp_get_thread_num()]) < sim->p_change &&
                 gapAhead(cars, i, grid, sim) < aheadThisLane(cars, i, sim) &&
                 gapAheadOther(cars, i, grid, sim) > aheadOtherLane(cars, i, sim) &&
                 gapBehindOther(cars, i, grid, sim) > behindOtherLane(cars, i, sim)
@@ -210,7 +228,7 @@ void update(car *cars, int *grid, int *new_grid, parameters *sim, int seed, int 
             if (cars[i].v > gap) {
                 cars[i].v = gap;
             }
-            if (cars[i].v > 0 && erand48(xsubi) < sim->p_brake) {
+            if (cars[i].v > 0 && erand48(xsubi[omp_get_thread_num()]) < sim->p_brake) {
                 cars[i].v--;
             }
         }
