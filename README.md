@@ -21,3 +21,6 @@ density: float that determines number of cars.
 p_change: float, probability of lane change.  
 p_brake: float, probability of a car randomly braking.  
 seed: integer used to seed the PRNG.
+
+Lines 78, 79, 84, 85 from traffic_serial.c  
+and 90, 91, 96, 97 from traffic_parallel.c can be uncommented for command line animation for testing purposes.
